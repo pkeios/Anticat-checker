@@ -17,7 +17,10 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
+from notifier import EmailNotifier
+
 COCO_CAT_CLASS = 15
+DEFAULT_EMAIL_CONFIG = Path(__file__).resolve().parent / "email.ini"
 WINDOW_NAME = "anticat"
 IS_WINDOWS = sys.platform == "win32"
 # Name fragments of built-in speaker devices (English / Spanish Windows)
@@ -259,6 +262,16 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--snapshots", type=Path, default=None,
                    help="Folder to save a photo each time the alarm fires")
     p.add_argument("--no-window", action="store_true", help="Run headless (no preview window)")
+    p.add_argument("--email-config", type=Path, default=DEFAULT_EMAIL_CONFIG,
+                   help="INI file with SMTP settings; email is enabled when it exists "
+                        "(default: email.ini next to this script, see email.example.ini)")
+    p.add_argument("--email-to", default=None,
+                   help="Recipients (comma separated), overrides 'to' in the config")
+    p.add_argument("--email-cooldown", type=float, default=None,
+                   help="Minimum seconds between emails (default: config value, or 60)")
+    p.add_argument("--no-email", action="store_true", help="Disable email notifications")
+    p.add_argument("--test-email", action="store_true",
+                   help="Send a test email with a camera snapshot and exit")
     return p.parse_args()
 
 
@@ -312,6 +325,23 @@ def build_player(args: argparse.Namespace, sound: Path) -> SoundPlayer:
     return player
 
 
+def build_notifier(args: argparse.Namespace) -> EmailNotifier | None:
+    if args.no_email:
+        return None
+    if not args.email_config.exists():
+        if args.email_config != DEFAULT_EMAIL_CONFIG:
+            raise SystemExit(f"Email config not found: {args.email_config}")
+        print("Email: off (no email.ini)")
+        return None
+    to = [a.strip() for a in args.email_to.split(",")] if args.email_to else None
+    try:
+        notifier = EmailNotifier(args.email_config, to, args.email_cooldown)
+    except (ValueError, KeyError) as exc:
+        raise SystemExit(f"Invalid email config: {exc}")
+    print(f"Email: on -> {', '.join(notifier.to)} (every {notifier.cooldown:g}s max)")
+    return notifier
+
+
 def main() -> None:
     args = parse_args()
 
@@ -323,6 +353,25 @@ def main() -> None:
         for idx, name, api in list_output_devices(sd):
             mark = "*" if idx == default_out else " "
             print(f"{mark} {idx:3d}  {name}  [{api}]")
+        return
+
+    notifier = build_notifier(args)
+    if args.test_email:
+        if not notifier:
+            raise SystemExit(f"Email not configured: create {args.email_config} "
+                             "(copy email.example.ini)")
+        cap = open_camera(args.camera)
+        ok, frame = cap.read()
+        cap.release()
+        if not ok:
+            raise SystemExit("Could not grab a frame from the camera")
+        jpg = cv2.imencode(".jpg", frame)[1].tobytes()
+        print(f"Sending test email to {', '.join(notifier.to)}...")
+        try:
+            notifier.send(jpg, datetime.now())
+        except Exception as exc:
+            raise SystemExit(f"Email failed: {exc}")
+        print("Test email sent.")
         return
 
     sound = args.sound
@@ -393,6 +442,10 @@ def main() -> None:
                 if args.snapshots:
                     name = datetime.now().strftime("cat_%Y%m%d_%H%M%S.jpg")
                     cv2.imwrite(str(args.snapshots / name), frame)
+                if notifier:
+                    ok_jpg, jpg = cv2.imencode(".jpg", frame)
+                    if ok_jpg and notifier.notify(jpg.tobytes(), datetime.now()):
+                        print(f"Sending email to {', '.join(notifier.to)}...")
 
             if not args.no_window:
                 status = "CAT!" if close_cat else "watching"
@@ -414,6 +467,8 @@ def main() -> None:
         player.stop()
         cap.release()
         cv2.destroyAllWindows()
+        if notifier:
+            notifier.wait()  # let an in-flight email finish
 
 
 if __name__ == "__main__":

@@ -46,6 +46,21 @@ Click the **DETENER** button in the preview window, press `q`/`Esc`, or close th
 
 `--output default` uses whatever output the system is currently using.
 
+## Email alerts
+When the alarm fires, the snapshot can be emailed to one or more addresses.
+
+1. Copy `email.example.ini` to `email.ini` (git-ignored) and fill in the SMTP account that sends
+   the email and the recipients (`to`, comma separated).
+2. Test it: `anticat.py --test-email` (sends a camera snapshot and exits).
+
+Email is enabled automatically when `email.ini` exists. Options: `--email-to a@x.com,b@y.com`
+(override recipients), `--email-cooldown 120`, `--email-config other.ini`, `--no-email`.
+The password can be kept out of the file with the `ANTICAT_SMTP_PASSWORD` environment variable.
+
+Outlook/Hotmail/Live personal accounts no longer allow SMTP with a password, so use e.g. a Gmail
+account with an [App Password](https://myaccount.google.com/apppasswords) as the sender
+(any address can receive).
+
 ## Detection strictness (defaults)
 - Model `yolov8s.pt`, confidence >= 0.60, class-agnostic NMS (a box only counts if "cat" beats dog/teddy bear/etc.).
 - The cat must be seen continuously for >= 1.5 s **and** >= 5 consecutive frames before the alarm fires.
