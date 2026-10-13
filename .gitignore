@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# YOLO weights are downloaded automatically on first run
+*.pt
+
+# Alarm snapshots
+capturas/
+captures/
