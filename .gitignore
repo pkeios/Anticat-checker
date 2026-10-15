@@ -12,3 +12,6 @@ captures/
 
 # Local email settings (may contain passwords)
 email.ini
+
+# Camera / audio chosen in the startup window
+settings.ini

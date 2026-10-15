@@ -37,6 +37,10 @@ Replace `.venv\Scripts\python` with `.venv/bin/python` on Linux.
 ```
 Click the **DETENER** button in the preview window, press `q`/`Esc`, or close the window to quit.
 
+Run without arguments and a startup window lets you pick the camera (with a preview) and the
+alarm output, test the sound, and press **Iniciar**. The choice is remembered in `settings.ini`
+(git-ignored). Passing any argument skips the window and uses the command-line options.
+
 ## Audio output
 `--output speakers` (default) plays the alarm on the built-in speakers:
 - **Windows**: picks the output device whose name contains "Speaker"/"Altavoces"/"Parlantes".

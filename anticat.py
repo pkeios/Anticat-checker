@@ -17,12 +17,16 @@ import numpy as np
 import torch
 from ultralytics import YOLO
 
+from launcher import choose_settings
 from notifier import EmailNotifier
 
 COCO_CAT_CLASS = 15
 DEFAULT_EMAIL_CONFIG = Path(__file__).resolve().parent / "email.ini"
+SETTINGS_FILE = Path(__file__).resolve().parent / "settings.ini"
 WINDOW_NAME = "anticat"
 IS_WINDOWS = sys.platform == "win32"
+# DirectShow opens webcams much faster than the default MSMF backend on Windows
+CAMERA_BACKEND = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
 # Name fragments of built-in speaker devices (English / Spanish Windows)
 SPEAKER_KEYWORDS = ("speaker", "altavoc", "parlante", "bocina")
 BASE_DIR = Path(__file__).resolve().parent
@@ -277,9 +281,7 @@ def parse_args() -> argparse.Namespace:
 
 def open_camera(source: str) -> cv2.VideoCapture:
     if source.isdigit():
-        # DirectShow opens webcams much faster than the default MSMF backend on Windows
-        backend = cv2.CAP_DSHOW if IS_WINDOWS else cv2.CAP_ANY
-        cap = cv2.VideoCapture(int(source), backend)
+        cap = cv2.VideoCapture(int(source), CAMERA_BACKEND)
     else:
         cap = cv2.VideoCapture(source)
     if not cap.isOpened():
@@ -323,6 +325,33 @@ def build_player(args: argparse.Namespace, sound: Path) -> SoundPlayer:
         where = "default output"
     print(f"Audio: {player.backend} -> {where}")
     return player
+
+
+def run_launcher(args: argparse.Namespace, sound: Path) -> bool:
+    """Let the user pick the camera and alarm output in a window; False if it was closed."""
+    sd = load_sounddevice()
+    outputs = []
+    if sd:
+        # Only the default host API (MME on Windows) to avoid listing each device 4 times
+        outputs = [(i, d["name"]) for i, d in enumerate(sd.query_devices())
+                   if d["max_output_channels"] > 0 and d["hostapi"] == sd.default.hostapi]
+
+    def play_test(device: int | None) -> None:
+        player = SoundPlayer(sound, args.volume, device)
+        if player.sd:
+            player.sd.play(player.data, player.rate, device=device)  # raises if it can't open
+        else:
+            player.play()
+
+    choice = choose_settings(outputs, play_test, SETTINGS_FILE, CAMERA_BACKEND)
+    if choice is None:
+        return False
+    args.camera, device = choice
+    if device is None:
+        args.output = "default"
+    else:
+        args.audio_device = str(device)
+    return True
 
 
 def build_notifier(args: argparse.Namespace) -> EmailNotifier | None:
@@ -381,6 +410,9 @@ def main() -> None:
             generate_default_sound(sound)
     if not sound.exists():
         raise SystemExit(f"Sound file not found: {sound}")
+    # Started without arguments (e.g. double-clicking anticat.bat): ask in a window
+    if len(sys.argv) == 1 and not run_launcher(args, sound):
+        return
     player = build_player(args, sound)
 
     if args.snapshots:
